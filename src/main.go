@@ -20,16 +20,60 @@ import (
 )
 
 // DD_SITE="datadoghq.com" DD_API_KEY="<DD_API_KEY>" DD_APP_KEY="<DD_APP_KEY>"
-const (
-	defaultGauges = "pulsar_msg_backlog"
-)
+func defaultPulsarGauges() []string {
+	return []string{
+		"pulsar_msg_backlog",
+		"pulsar_producers_count",
+		"pulsar_publish_rate_limit_times",
+		"pulsar_rate_in",
+		"pulsar_rate_out",
+		"pulsar_replication_backlog",
+		"pulsar_replication_connected_count",
+		"pulsar_replication_delay_in_seconds",
+		"pulsar_replication_rate_expired",
+		"pulsar_replication_rate_in",
+		"pulsar_replication_rate_out",
+		"pulsar_replication_throughput_in",
+		"pulsar_replication_throughput_out",
+		"pulsar_source_last_invocation",
+		"pulsar_storage_backlog_quota_limit",
+		"pulsar_storage_backlog_quota_limit_time",
+		"pulsar_storage_backlog_size",
+		"pulsar_subscription_back_log",
+		"pulsar_subscription_back_log_no_delayed",
+		"pulsar_subscription_blocked_on_unacked_messages",
+		"pulsar_subscription_consumers_count",
+		"pulsar_subscription_delayed",
+		"pulsar_subscription_filter_accepted_msg_count",
+		"pulsar_subscription_filter_processed_msg_count",
+		"pulsar_subscription_filter_rejected_msg_count",
+		"pulsar_subscription_filter_rescheduled_msg_count",
+		"pulsar_subscription_last_acked_timestamp",
+		"pulsar_subscription_last_consumed_flow_timestamp",
+		"pulsar_subscription_last_consumed_timestamp",
+		"pulsar_subscription_last_expire_timestamp",
+		"pulsar_subscription_last_mark_delete_advanced_timestamp",
+		"pulsar_subscription_msg_ack_rate",
+		"pulsar_subscription_msg_drop_rate",
+		"pulsar_subscription_msg_rate_expired",
+		"pulsar_subscription_msg_rate_out",
+		"pulsar_subscription_msg_rate_redeliver",
+		"pulsar_subscription_msg_throughput_out",
+		"pulsar_subscription_total_msg_expired",
+		"pulsar_subscription_unacked_messages",
+		"pulsar_subscriptions_count",
+		"pulsar_throughput_in",
+		"pulsar_throughput_out",
+		"pulsar_topics_count",
+	}
+}
 
 // Config is the configuration for the exporter
 type Config struct {
 	PrometheusScrapeURL    string `env:"TARGET_URL"`
 	ScrapeInterval         int    `env:"SCRAPE_INTERVAL" envDefault:"60"`
 	PrometheusBearerHeader string `env:"PROMETHEUS_JWT_HEADER"`
-	Metrics                string `env:"METRICS" envDefault:"pulsar_msg_backlog"`
+	Metrics                string `env:"METRICS" envDefault:""`
 }
 
 // DD_SITE="datadoghq.com" DD_API_KEY="<DD_API_KEY>" DD_APP_KEY="<DD_APP_KEY>"
@@ -48,11 +92,16 @@ func main() {
 
 	// Start an infinite loop.
 	go func(c Config) {
-		log.Println("Starting...")
 		ticker := time.NewTicker(time.Duration(c.ScrapeInterval) * time.Second)
 		defer ticker.Stop()
 
-		metrics := strings.Split(c.Metrics, ",")
+		var metrics []string
+		if c.Metrics == "" {
+			metrics = defaultPulsarGauges()
+		} else {
+			metrics = strings.Split(c.Metrics, ",")
+		}
+		log.Printf("Starting tracking metrics %v", metrics)
 		for {
 			select {
 			case <-ticker.C:
