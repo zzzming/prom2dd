@@ -76,6 +76,8 @@ type Config struct {
 	Metrics                string `env:"METRICS" envDefault:""`
 }
 
+// https://docs.datadoghq.com/api/latest/metrics/#submit-metrics
+// Required DD API and APP keys to be set in the environment
 // DD_SITE="datadoghq.com" DD_API_KEY="<DD_API_KEY>" DD_APP_KEY="<DD_APP_KEY>"
 
 func main() {

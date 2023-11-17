@@ -24,7 +24,7 @@ GIT_COMMIT = $(shell git rev-list -1 HEAD)
 TAG ?= $(GIT_COMMIT)
 
 prom2dd:
-    go build -o prom2dd -tags musl src/main.go
+	go build -o prom2dd -tags musl src/main.go
 
 build: prom2dd
 
