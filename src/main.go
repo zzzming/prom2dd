@@ -104,12 +104,16 @@ func main() {
 			metrics = strings.Split(c.Metrics, ",")
 		}
 		log.Printf("Starting tracking metrics %v", metrics)
+		err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, metrics)
+		if err != nil {
+			log.Printf("Error scraping Prometheus URL %s or sending to DD error: %v", c.PrometheusScrapeURL, err)
+		}
 		for {
 			select {
 			case <-ticker.C:
 				err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, metrics)
 				if err != nil {
-					log.Printf("Error scraping Prometheus %s: %v", c.PrometheusBearerHeader, err)
+					log.Printf("Error scraping Prometheus URL %s or sending to DD error: %v", c.PrometheusScrapeURL, err)
 				}
 			}
 		}
@@ -126,19 +130,25 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 	}
 
 	// Add the Bearer token for authorization
-	req.Header.Add("Authorization", "Bearer "+token)
+	req.Header.Add("Authorization", token)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatalf("Error fetching metrics: %v", err)
+		return fmt.Errorf("error fetching metrics: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("scraping metrics unexpected status code %d", resp.StatusCode)
+	}
 
 	var parser expfmt.TextParser
 	metricFamilies, err := parser.TextToMetricFamilies(resp.Body)
 	if err != nil {
-		log.Fatalf("Error parsing metrics: %v", err)
+		return fmt.Errorf("error parsing metrics: %v", err)
 	}
+
+	fmt.Printf("Sending %d metrics to DD\n", len(metricFamilies))
 
 	ctx := datadog.NewDefaultContext(context.Background())
 	configuration := datadog.NewConfiguration()
@@ -191,7 +201,7 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 			_, _, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
 
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error when calling `MetricsApi.SubmitMetrics`: %v\n", err)
+				log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\n", metricName, err)
 				return err
 			}
 		}
