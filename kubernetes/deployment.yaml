@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom2dd-{cluster}-{tenant}
+  namespace: koddi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prom2dd
+  template:
+    metadata:
+      labels:
+        app: prom2dd
+    spec:
+      containers:
+      - name: prom2dd-container
+        image: itestmycode/prom2dd:0.0.3 
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80  # Replace if your container port is different
+        env:
+          - name: DD_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: dd-api-key
+                key: DD_API_KEY
+          - name: DD_APP_KEY
+            valueFrom:
+              secretKeyRef:
+                name: dd-app-key
+                key: DD_APP_KEY
+          - name: PROMETHEUS_JWT_HEADER
+            valueFrom:
+              secretKeyRef:
+                name: {cluster}-{tenant}-jwt
+                key: PROMETHEUS_JWT_HEADER
+          - name: TARGET_URL
+            value: "https://prometheus-{host}.streaming.datastax.com/pulsarmetrics/{tenent}"
+
