@@ -204,10 +204,14 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 			}
 
 			// fmt.Printf("Metric: %s | Labels: %v | Value: %f\n", metricName, labels, value)
-			var tags []string
+			var resources []datadogV2.MetricResource
 			for _, label := range metric.Label {
-				tags = append(tags, fmt.Sprintf("%s:%s", *label.Name, *label.Value))
+				resources = append(resources, datadogV2.MetricResource{
+					Name: datadog.PtrString(*label.Value),
+					Type: datadog.PtrString(*label.Name),
+				})
 			}
+			// fmt.Printf("Metric: %s | Labels: %v | Value: %f \n", metricName, labels, value)
 
 			series = append(series, datadogV2.MetricSeries{
 				Metric: metricName,
@@ -215,10 +219,11 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 				Points: []datadogV2.MetricPoint{
 					{
 						// Timestamp: metric.TimestampMs,
-						Value: datadog.PtrFloat64(value),
+						Timestamp: datadog.PtrInt64(time.Now().Unix()),
+						Value:     datadog.PtrFloat64(value),
 					},
 				},
-				Tags: tags,
+				Resources: resources,
 			})
 		}
 
