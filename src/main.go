@@ -184,6 +184,8 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 		if !contains(metrics, metricName) {
 			continue
 		}
+		series := make([]datadogV2.MetricSeries, 0)
+		numOfMetrics := len(metricFamily.Metric)
 		for _, metric := range metricFamily.Metric {
 			labels := make(model.LabelSet)
 			for _, label := range metric.Label {
@@ -207,28 +209,28 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 				tags = append(tags, fmt.Sprintf("%s:%s", *label.Name, *label.Value))
 			}
 
-			body := datadogV2.MetricPayload{
-				Series: []datadogV2.MetricSeries{
+			series = append(series, datadogV2.MetricSeries{
+				Metric: metricName,
+				Type:   datadogV2.METRICINTAKETYPE_GAUGE.Ptr(),
+				Points: []datadogV2.MetricPoint{
 					{
-						Metric: metricName,
-						Type:   datadogV2.METRICINTAKETYPE_GAUGE.Ptr(),
-						Points: []datadogV2.MetricPoint{
-							{
-								// Timestamp: metric.TimestampMs,
-								Value: datadog.PtrFloat64(value),
-							},
-						},
-						Tags: tags,
+						// Timestamp: metric.TimestampMs,
+						Value: datadog.PtrFloat64(value),
 					},
 				},
-			}
-			accepted, resp, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
-
-			if err != nil {
-				log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\naccepted %v\nhttp response %v\n", metricName, err, accepted, resp)
-			}
-
+				Tags: tags,
+			})
 		}
+
+		body := datadogV2.MetricPayload{Series: series}
+		accepted, resp, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
+
+		if err != nil {
+			log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\naccepted %v\nhttp response %v\n", metricName, err, accepted, resp)
+		} else {
+			log.Printf("Metrics %s, number of %d,sent to DD successfully\n", metricName, numOfMetrics)
+		}
+
 	}
 
 	return nil
