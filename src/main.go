@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -69,11 +70,13 @@ func defaultPulsarGauges() []string {
 }
 
 // Config is the configuration for the exporter
+// DDBatchSize is the number of metrics to send to DD in a single request. DD has 512KB max payload limit. Exceeding that will result in 413 error
 type Config struct {
 	PrometheusScrapeURL    string `env:"TARGET_URL"`
 	ScrapeInterval         int    `env:"SCRAPE_INTERVAL" envDefault:"60"`
 	PrometheusBearerHeader string `env:"PROMETHEUS_JWT_HEADER"`
 	Metrics                string `env:"METRICS" envDefault:""`
+	DDBatchSize            string `env:"DD_BATCH_SIZE" envDefault:"100"`
 }
 
 // https://docs.datadoghq.com/api/latest/metrics/#submit-metrics
@@ -92,6 +95,12 @@ func main() {
 		log.Fatalf("Config deserialize error %v", err)
 	}
 
+	batchSize, err := strconv.Atoi(cfg.DDBatchSize)
+	if err != nil {
+		log.Fatalf("Error parsing batch size %v", err)
+		batchSize = 100
+	}
+
 	// Start an infinite loop.
 	go func(c Config) {
 		ticker := time.NewTicker(time.Duration(c.ScrapeInterval) * time.Second)
@@ -104,14 +113,14 @@ func main() {
 			metrics = strings.Split(c.Metrics, ",")
 		}
 		log.Printf("Starting tracking metrics %v", metrics)
-		err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, metrics)
+		err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, batchSize, metrics)
 		if err != nil {
 			log.Printf("Error scraping Prometheus URL %s or sending to DD error: %v", c.PrometheusScrapeURL, err)
 		}
 		for {
 			select {
 			case <-ticker.C:
-				err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, metrics)
+				err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, batchSize, metrics)
 				if err != nil {
 					log.Printf("Error scraping Prometheus URL %s or sending to DD error: %v", c.PrometheusScrapeURL, err)
 				} else {
@@ -124,7 +133,7 @@ func main() {
 	<-sigs
 }
 
-func scrapePrometheus(targetURL, token string, metrics []string) error {
+func scrapePrometheus(targetURL, token string, batchSize int, metrics []string) error {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
@@ -150,34 +159,7 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 		return fmt.Errorf("error parsing metrics: %v", err)
 	}
 
-	log.Printf("Sending %d metrics to DD\n", len(metricFamilies))
-
-	ctx := datadog.NewDefaultContext(context.Background())
-	/**
-	    // this is how three DD env vars are set
-		ctx := context.WithValue(
-			context.Background(),
-			datadog.ContextAPIKeys,
-			map[string]datadog.APIKey{
-				"apiKeyAuth": {
-					Key: os.Getenv("DD_API_KEY"),
-				},
-				"appKeyAuth": {
-					Key: os.Getenv("DD_APP_KEY"),
-				},
-			},
-		)
-		ctx = context.WithValue(ctx,
-			datadog.ContextServerVariables,
-			map[string]string{
-				"site": "datadoghq.eu",
-			})
-	*/
-
-	configuration := datadog.NewConfiguration()
-	configuration.Compress = true
-	apiClient := datadog.NewAPIClient(configuration)
-	api := datadogV2.NewMetricsApi(apiClient)
+	log.Printf("Sending %d metrics to DD with batch size %d\n", len(metricFamilies), batchSize)
 
 	// Iterate through metrics and print them
 	for metricName, metricFamily := range metricFamilies {
@@ -203,7 +185,6 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 				continue
 			}
 
-			// fmt.Printf("Metric: %s | Labels: %v | Value: %f\n", metricName, labels, value)
 			var resources []datadogV2.MetricResource
 			for _, label := range metric.Label {
 				resources = append(resources, datadogV2.MetricResource{
@@ -225,14 +206,14 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 				},
 				Resources: resources,
 			})
+			// Send metrics in batches of 50 because DD payload limit is 512KB
+			if len(series) == batchSize {
+				sendMetrics(series)
+				series = make([]datadogV2.MetricSeries, 0)
+			}
 		}
 
-		body := datadogV2.MetricPayload{Series: series}
-		accepted, resp, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
-
-		if err != nil {
-			log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\naccepted %v\nhttp response %v\n", metricName, err, accepted, resp)
-		} else {
+		if err := sendMetrics(series); err == nil {
 			log.Printf("Metrics %s, number of %d,sent to DD successfully\n", metricName, numOfMetrics)
 		}
 
@@ -241,6 +222,21 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 	return nil
 }
 
+func sendMetrics(series []datadogV2.MetricSeries) error {
+	ctx := datadog.NewDefaultContext(context.Background())
+	configuration := datadog.NewConfiguration()
+	configuration.Compress = true
+	apiClient := datadog.NewAPIClient(configuration)
+	api := datadogV2.NewMetricsApi(apiClient)
+
+	body := datadogV2.MetricPayload{Series: series}
+	accepted, resp, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
+
+	if err != nil {
+		log.Printf("Error when calling `MetricsApi.SubmitMetrics`: %v\naccepted %v\nhttp response %v\n", err, accepted, resp)
+	}
+	return err
+}
 func contains(slice []string, target string) bool {
 	for _, value := range slice {
 		if value == target {
