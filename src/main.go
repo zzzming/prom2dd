@@ -24,35 +24,35 @@ func defaultPulsarGauges() []string {
 	return []string{
 		"pulsar_msg_backlog",
 		"pulsar_producers_count",
-		"pulsar_publish_rate_limit_times",
+		// "pulsar_publish_rate_limit_times",
 		"pulsar_rate_in",
 		"pulsar_rate_out",
 		"pulsar_replication_backlog",
-		"pulsar_replication_connected_count",
-		"pulsar_replication_delay_in_seconds",
-		"pulsar_replication_rate_expired",
+		// "pulsar_replication_connected_count",
+		// "pulsar_replication_delay_in_seconds",
+		// "pulsar_replication_rate_expired",
 		"pulsar_replication_rate_in",
 		"pulsar_replication_rate_out",
 		"pulsar_replication_throughput_in",
 		"pulsar_replication_throughput_out",
-		"pulsar_source_last_invocation",
-		"pulsar_storage_backlog_quota_limit",
-		"pulsar_storage_backlog_quota_limit_time",
+		// "pulsar_source_last_invocation",
+		// "pulsar_storage_backlog_quota_limit",
+		// "pulsar_storage_backlog_quota_limit_time",
 		"pulsar_storage_backlog_size",
 		"pulsar_subscription_back_log",
 		"pulsar_subscription_back_log_no_delayed",
 		"pulsar_subscription_blocked_on_unacked_messages",
 		"pulsar_subscription_consumers_count",
 		"pulsar_subscription_delayed",
-		"pulsar_subscription_filter_accepted_msg_count",
-		"pulsar_subscription_filter_processed_msg_count",
-		"pulsar_subscription_filter_rejected_msg_count",
-		"pulsar_subscription_filter_rescheduled_msg_count",
-		"pulsar_subscription_last_acked_timestamp",
-		"pulsar_subscription_last_consumed_flow_timestamp",
-		"pulsar_subscription_last_consumed_timestamp",
-		"pulsar_subscription_last_expire_timestamp",
-		"pulsar_subscription_last_mark_delete_advanced_timestamp",
+		// "pulsar_subscription_filter_accepted_msg_count",
+		// "pulsar_subscription_filter_processed_msg_count",
+		// "pulsar_subscription_filter_rejected_msg_count",
+		// "pulsar_subscription_filter_rescheduled_msg_count",
+		// "pulsar_subscription_last_acked_timestamp",
+		// "pulsar_subscription_last_consumed_flow_timestamp",
+		// "pulsar_subscription_last_consumed_timestamp",
+		// "pulsar_subscription_last_expire_timestamp",
+		// "pulsar_subscription_last_mark_delete_advanced_timestamp",
 		"pulsar_subscription_msg_ack_rate",
 		"pulsar_subscription_msg_drop_rate",
 		"pulsar_subscription_msg_rate_expired",
@@ -114,6 +114,8 @@ func main() {
 				err := scrapePrometheus(c.PrometheusScrapeURL, c.PrometheusBearerHeader, metrics)
 				if err != nil {
 					log.Printf("Error scraping Prometheus URL %s or sending to DD error: %v", c.PrometheusScrapeURL, err)
+				} else {
+					log.Printf("Metrics sent to DD successfully")
 				}
 			}
 		}
@@ -148,10 +150,32 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 		return fmt.Errorf("error parsing metrics: %v", err)
 	}
 
-	fmt.Printf("Sending %d metrics to DD\n", len(metricFamilies))
+	log.Printf("Sending %d metrics to DD\n", len(metricFamilies))
 
 	ctx := datadog.NewDefaultContext(context.Background())
+	/**
+	    // this is how three DD env vars are set
+		ctx := context.WithValue(
+			context.Background(),
+			datadog.ContextAPIKeys,
+			map[string]datadog.APIKey{
+				"apiKeyAuth": {
+					Key: os.Getenv("DD_API_KEY"),
+				},
+				"appKeyAuth": {
+					Key: os.Getenv("DD_APP_KEY"),
+				},
+			},
+		)
+		ctx = context.WithValue(ctx,
+			datadog.ContextServerVariables,
+			map[string]string{
+				"site": "datadoghq.eu",
+			})
+	*/
+
 	configuration := datadog.NewConfiguration()
+	configuration.Compress = true
 	apiClient := datadog.NewAPIClient(configuration)
 	api := datadogV2.NewMetricsApi(apiClient)
 
@@ -190,20 +214,20 @@ func scrapePrometheus(targetURL, token string, metrics []string) error {
 						Type:   datadogV2.METRICINTAKETYPE_GAUGE.Ptr(),
 						Points: []datadogV2.MetricPoint{
 							{
-								Timestamp: metric.TimestampMs,
-								Value:     datadog.PtrFloat64(value),
+								// Timestamp: metric.TimestampMs,
+								Value: datadog.PtrFloat64(value),
 							},
 						},
 						Tags: tags,
 					},
 				},
 			}
-			_, _, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
+			accepted, resp, err := api.SubmitMetrics(ctx, body, *datadogV2.NewSubmitMetricsOptionalParameters())
 
 			if err != nil {
-				log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\n", metricName, err)
-				return err
+				log.Printf("Error when calling `MetricsApi.SubmitMetrics` on label %s : %v\naccepted %v\nhttp response %v\n", metricName, err, accepted, resp)
 			}
+
 		}
 	}
 
